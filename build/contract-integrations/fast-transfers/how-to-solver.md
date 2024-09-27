@@ -1,18 +1,18 @@
 ---
 title: How to be a Solver
-description: Explore how solvers engage in Fast Transfers auctions, from initiating offers to settling, with steps and MainNet contract addresses.
+description: Explore how solvers engage in Composable Intents auctions, from initiating offers to settling, with steps and Mainnet contract addresses.
 ---
 
 # How to be a Solver
 
 ## Overview
 
-In [Fast Transfers](/docs/learn/messaging/fast-transfers/){target=\_blank}, solvers ensure efficient cross-chain transfers through a competitive auction process on the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank}. The auction consists of four key steps:
+In [Composable Intents](/docs/learn/messaging/fast-transfers/){target=\_blank}, solvers ensure efficient cross-chain transfers through a competitive auction process on the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank}. The auction consists of four key steps:
 
-1. **Starting an auction** - users initiate a transfer, and solvers begin bidding to fulfill it by offering the best rates
-2. **Participating in an auction** - solvers compete in a reverse Dutch auction to provide the most cost-effective solution
-3. **Execute fast order to complete auction** - the winning solver completes the transfer by sending assets to the destination chain within a set time frame
-4. **Settling an auction** - once the transfer is finalized, the solver retrieves their funds and earns the fee for the completed transaction
+1. **Starting an auction** 
+2. **Participating in an auction** 
+3. **Executing an order to complete auction** 
+4. **Settling an auction** 
 
 ## Starting an Auction
 
@@ -117,6 +117,6 @@ After posting the finalized VAA, the final step is to settle the auction on Sola
 - `fastVaaBytes` - the initial VAA from the fast transfer process
 - `finalizedVaaBytes` - the finalized VAA confirming the completion of the auction and transfer
 
-## MainNet Contract Addresses
+## Mainnet Contract Addresses
 
-For MainNet contract addresses for various components of the Fast Transfers protocol, including the Matching Engine, Token Router, and Upgrade Manager, refer to the [Contract Addresses page](/docs/build/reference/contract-addresses/#fast-transfers){target=\_blank}.
+For Mainnet contract addresses for various components of the Composable Intents protocol, including the Matching Engine, Token Router, and Upgrade Manager, refer to the [Contract Addresses page](/docs/build/reference/contract-addresses/#fast-transfers){target=\_blank}.
