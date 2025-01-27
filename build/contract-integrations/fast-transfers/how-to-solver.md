@@ -1,122 +1,243 @@
+# Running a Wormhole Settlement Solver
+
+This document provides step-by-step instructions on how to set up, configure, and run a Solver for Wormhole Settlement using the example solver located at:
+
+https://github.com/wormholelabs-xyz/example-liquidity-layer/tree/update-solver-example/solver
+
 ---
-title: How to be a Solver
-description: Explore how solvers engage in Fast Transfers auctions, from initiating offers to settling, with steps and MainNet contract addresses.
----
 
-# How to be a Solver
+## OVERVIEW
 
-## Overview
+A Solver is an off-chain agent responsible for:
 
-In [Fast Transfers](/docs/learn/messaging/fast-transfers/){target=\_blank}, solvers ensure efficient cross-chain transfers through a competitive auction process on the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank}. The auction consists of four key steps:
+- Listening to cross-chain transfer requests sent over Wormhole.
+- Bidding in auctions (on Solana) to fulfill each request.
+- Facilitating the actual cross-chain transfer by locking/burning assets on Solana and minting/unlocking them on the destination chain.
+- Rebalancing once the origin chain transaction finalizes and is redeemed back on Solana.
 
-1. **Starting an auction** - users initiate a transfer, and solvers begin bidding to fulfill it by offering the best rates
-2. **Participating in an auction** - solvers compete in a reverse Dutch auction to provide the most cost-effective solution
-3. **Execute fast order to complete auction** - the winning solver completes the transfer by sending assets to the destination chain within a set time frame
-4. **Settling an auction** - once the transfer is finalized, the solver retrieves their funds and earns the fee for the completed transaction
+For information on how the protocol functions and its core features, please visit: [Wormhole Settlement]
 
-## Starting an Auction
+# Testnet Example Solver
 
-When users interact with [Token Routers](/docs/build/contract-integrations/fast-transfers/smart-components/#token-router-contracts){target=\_blank} to transfer assets faster than finality to another chain, they place an order that is processed by the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank}.
+This directory warehouses an example solver to fulfill fast orders by
+interacting with the Matching Engine on Solana.
 
-To initiate an auction with this message, complete the steps in the following sections on Solana.
+**This example is by no means optimized for performance and has only been tested
+on Solana devnet. Any assumptions made in this example may not translate to
+mainnet.**
 
-### Send Transactions to Verify Signatures and Post VAA
+## Table of Contents
 
-The [VAA (Verified Action Approval)](/docs/learn/infrastructure/vaas/){target=\_blank} is a message that acts as an I owe you (IOU) for the solver when the auction is settled. The [Wormhole Spy](/docs/learn/infrastructure/spy/){target=\_blank} or a [custom relayer](https://github.com/wormhole-foundation/relayer-engine){target=\_blank} listens to the Wormhole gossip network to observe the fast VAA.
+1. [Getting Started](https://github.com/mahermlatif/wormhole-docs/edit/ilariae/fast-transfers/build/contract-integrations/fast-transfers/how-to-solver.md#L37)
+2. [Setting up Config](https://github.com/mahermlatif/wormhole-docs/edit/ilariae/fast-transfers/build/contract-integrations/fast-transfers/how-to-solver.md#L51)
+3. [Listening to Activity](https://github.com/mahermlatif/wormhole-docs/edit/ilariae/fast-transfers/build/contract-integrations/fast-transfers/how-to-solver.md#L141)
+4. [Running the Example Solver](https://github.com/mahermlatif/wormhole-docs/edit/ilariae/fast-transfers/build/contract-integrations/fast-transfers/how-to-solver.md#L165)
+6. [Miscellaneous](https://github.com/mahermlatif/wormhole-docs/edit/ilariae/fast-transfers/build/contract-integrations/fast-transfers/how-to-solver.md#L240)
 
-To read VAAs on Solana, someone must verify the signatures and post the VAA to a Solana account using the Wormhole Core Bridge. This is done through the [Wormhole TS SDK](https://github.com/wormhole-foundation/wormhole-sdk-ts){target=\_blank}.
+## Getting Started
 
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/postVaa.js::14'
+In order to build and install dependencies locally in this repo, you will need
+`node` v20.18.1 and `npm`. Get started by installing `nvm` using
+[this installation guide](https://github.com/nvm-sh/nvm?tab=readme-ov-file#installing-and-updating).
+
+Run the command below to set up your environment. This installs `node`
+dependencies and the Matching Engine package.
+
+```
+make dependencies
+
 ```
 
-- `postVaaSolanaWithRetry` - function that posts the VAA to Solana by verifying its signatures and linking it to the appropriate Solana account
-- `payer` - the entity paying the transaction fees, defined by a secret key using the Solana Keypair
-- `fastVaaBytes` - the VAA message that acts as an IOU for the auction settlement
+## Setting up Config
 
-### Send Transaction to Place Initial Offer
+Here is an example *config.json* file for Solana devnet. All of the keys here
+are required for both the publisher and Example Solver processes.
 
-After the VAA is posted, the next step is to place an initial offer in the auction. This involves setting the offer price and priority fees.
+```json
+{
+  "environment": "Testnet",
+  "zmqChannels": {
+    "fastVaa": "tcp://localhost:6001",
+    "finalizedVaa": "tcp://localhost:6002"
+  },
+  "publisher": {
+    "log": {
+      "level": "info"
+    },
+    "vaaSpy": {
+      "host": "localhost:7073",
+      "enableObservationCleanup": true,
+      "observationSeenThresholdMs": 1500000,
+      "observationCleanupIntervalMs": 500,
+      "observationsToRemovePerInterval": 5,
+      "delayedThresholdMs": 60000
+    }
+  },
+  "solver": {
+    "log": {
+      "level": "info",
+      "filename": "logs/solver.log"
+    },
+    "connection": {
+      "rpc": "<https://your-devnet-rpc-here/>",
+      "maxTransactionsPerSecond": 5,
+      "commitment": "processed",
+      "addressLookupTable": "YourAddressLookupTab1eHere11111111111111111",
+      "matchingEngine": "mPydpGUWxzERTNpyvTKdvS7v8kvw5sgwfiP8WQFrXVS",
+      "mint": "4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU",
+      "knownAtaOwners": [
+        "Payer11111111111111111111111111111111111111",
+        "Payer11111111111111111111111111111111111112",
+        "Payer11111111111111111111111111111111111113"
+      ]
+    }
+  },
+  "routerEndpoints": [
+    {
+      "chain": "Sepolia",
+      "endpoint": "0xE57D917bf955FedE2888AAbD056202a6497F1882",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    },
+    {
+      "chain": "Avalanche",
+      "endpoint": "0x8Cd7D7C980cd72eBD16737dC3fa04469dcFcf07A",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    },
+    {
+      "chain": "OptimismSepolia",
+      "endpoint": "0x6BAa7397c18abe6221b4f6C3Ac91C88a9faE00D8",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    },
+    {
+      "chain": "ArbitrumSepolia",
+      "endpoint": "0xe0418C44F06B0b0D7D1706E01706316DBB0B210E",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    },
+    {
+      "chain": "BaseSepolia",
+      "endpoint": "0x824Ea687CD1CC2f2446235D33Ae764CbCd08e18C",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    },
+    {
+      "chain": "Polygon",
+      "endpoint": "0xa098368AaaDc0FdF3e309cda710D7A5f8BDEeCD9",
+      "rollbackRisk": 0.0069,
+      "offerEdge": 0.042
+    }
+  ]
+}
 
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/offer-settle.js::33'
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/offer-settle.js:50'
 ```
 
-- `MatchingEngineProgram`- handles interactions with the auction system on Solana
-- `placeInitialOfferTx` - function that submits the solver's initial offer to the Matching Engine with details like the offer price and the fee (in [micro-lamports](https://solana.com/docs/terminology#lamport){target=\_blank})
-- `feeMicroLamports` - the priority fee for processing this transaction
-- `fastVaaBytes` - the VAA message that represents the auction
+Rollback risks and offer edges configured in the sample config are arbitrary.
+It is your job to determine which makes sense using historical data and your
+risk tolerance.
 
-## Participating in an Auction
+## Listening to Activity
 
-To participate in an already initialized auction, a relayer must place an offer at a price better than the current auction price. The auction data is stored in an account created by the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank}, and the fast VAA hash determines this auction account address.  
+The Example Solver listens to attested Wormhole messages (VAAs) published on the
+Wormhole Guardian gossip network. In order to listen to this gossip network and
+run the VAA publisher, run the command below. Docker compose is used to listen
+to the Pyth Beacon and start up the [publishActivity](https://www.notion.so/wormholefoundation/app/publishActivity.ts)
+process.
 
-The auction account pubkey can be determined by either:
+```
+NETWORK=testnet CONFIG=path/to/config.json make run-publisher
 
-- Listening to a Solana web socket connection to find the account when the initial offer is placed:
-    - Subscribe to a WebSocket service that monitors Solana for new transactions
-    - Filter the transactions to identify those related to the initial offer by checking for interaction with the Matching Engine’s program ID
-    - Extract the auction account public key from the transaction where the initial offer was placed
-- Using the fast VAA bytes to compute its hash and derive its auction account address
-    - Convert the fast VAA bytes into a hash using a cryptographic hash function <!-- hashing function ?? Keccak256 ??  -->
-    - Derive the auction account public key by using the hash as an input to a deterministic function that maps the hash to a public key within the Matching Engine's account space
-
-Once the auction account is found, the relayer can submit an improved offer.
-
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/auction.js::32'
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/auction.js:45'
 ```
 
-- `improveOfferTx` - function  that allows the solver to place a better offer by submitting a lower bid (improved offer price) than the current one
-- `auction` - the public key of the auction account derived from the fast VAA hash or detected through the WebSocket
-- `feeLamports` - the priority fee for processing the improved offer
+You should see output resembling:
 
-## Execute Fast Order to Complete Auction
+```
+Start logging with info level.
+2025-01-21 16:38:28.145 [publisher] info: Environment: Testnet
+2025-01-21 16:38:36.631 [publisher] info: Fast VAA. chain=OptimismSepolia, sequence=33635, vaaTime=1737499116
+2025-01-21 16:38:51.044 [publisher] info: Fast VAA. chain=OptimismSepolia, sequence=33637, vaaTime=1737499130
+2025-01-21 16:40:24.890 [publisher] info: Fast VAA. chain=OptimismSepolia, sequence=33639, vaaTime=1737499224
 
-To complete the auction, the relayer must execute the fast order before the grace period ends. This step releases the funds to the user on the target chain. To execute the fast order, the relayer must interact with the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank} on Solana, using the auction account derived from the fast VAA.
-
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/auction.js::20'
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/auction.js:34'
 ```
 
-- `executeFastOrderTx` - function that executes the fast order, which releases the intended funds to the user on the target chain, finalizing the auction
+## Running the Example Solver
 
-Participating in an auction is part of the bidding process, where the solver improves their offer to provide the most cost-effective solution and win the right to fulfill the transfer. In comparison, executing a fast order to complete an auction does not involve submitting a new offer price but ensuring the auction winner appropriately processes the transfer. Funds are transferred within the set time frame to finalize the auction and release funds to the user on the target chain.
+Using the same config for your publisher, run the Example Solver with the
+command below.
 
-## Settle Auction with Finalized VAA
+```
+CONFIG=path/to/config.json make run-solver
 
-### Send Transactions to Verify Signatures and Post VAA
-
-Once the auction is completed, the finalized VAA must be posted to Solana to officially settle the auction. The finalized VAA can be observed using Wormhole Spy or similar processes, such as the relayer engine that listens to the Wormhole Spy network.
-
-Anyone can post the VAAs on Solana to read and verify VAAs using Wormhole Core Bridge instructions. This is typically done using the [Wormhole TS SDK](/docs/build/applications/wormhole-sdk/){target=\_blank}, as shown below:
-
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/postVaa.js::6'
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/postVaa.js:19'
 ```
 
-- `postVaaSolanaWithRetry` - posts the finalized VAA to the Solana blockchain by verifying the signatures and associating the VAA with a Solana account
-- `payer` - the entity responsible for covering transaction fees
-- `finalizedVaaBytes` - the VAA message confirming the auction's settlement
+**We recommend writing log output to a file so errors can be tracked.** See the
+example config above that specifies an example log filename.
 
-### Send Transaction to Settle Complete Auction
+This process reads the following environment variables:
 
-After posting the finalized VAA, the final step is to settle the auction on Solana. This confirms the auction and ensures the winning solver is paid out accordingly. The following code sends a transaction to the [Matching Engine](/docs/build/contract-integrations/fast-transfers/smart-components/#matching-engine){target=\_blank} to settle the auction:
+```
+SOLANA_PRIVATE_KEY_1=
+SOLANA_PRIVATE_KEY_2=
+SOLANA_PRIVATE_KEY_3=
+SOLANA_PRIVATE_KEY_4=
+SOLANA_PRIVATE_KEY_5=
 
-```js
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/offer-settle.js::20'
---8<-- 'code/build/contract-integrations/fast-transfers/how-to-solver/offer-settle.js:37'
 ```
 
-- `settleAuctionTx` - settles the auction by confirming the transfer using both the fast VAA and the finalized VAA
-- `sourceRpc` - the RPC connection to the source chain, used for fetching required information during settlement
-- `fastVaaBytes` - the initial VAA from the fast transfer process
-- `finalizedVaaBytes` - the finalized VAA confirming the completion of the auction and transfer
+At least one of these environment variables must be defined as a keypair encoded
+in base64 format. **These payers must have SOL in order to pay to send
+transactions on Solana devnet.** If these payers need funds, go to the
+[Solana devnet faucet](https://faucet.solana.com/) to request some.
 
-## MainNet Contract Addresses
+The Example Solver assumes that these payers are the owners of USDC Associated
+Token Accounts, which will be used to fulfill fast transfers. **These ATAs must
+be funded with Solana devnet USDC.** If your ATAs need funds, go to the
+[Circle testnet faucet](https://faucet.circle.com/) to request some.
 
-For MainNet contract addresses for various components of the Fast Transfers protocol, including the Matching Engine, Token Router, and Upgrade Manager, refer to the [Contract Addresses page](/docs/build/reference/contract-addresses/#fast-transfers){target=\_blank}.
+Wallets and their corresponding ATA will be disabled if there are not enough
+funds to pay for transactions or fulfill fast transfers. These constraints can
+be modified using the `updatePayerMinimumLamports` and
+`updateTokenMinimumBalance` methods.
+
+An address lookup table is required to execute some transactions. Use the
+command below to create one.
+
+```
+CONFIG=path/to/config.json make create-lut
+
+```
+
+**`SOLANA_PRIVATE_KEY_1` must be defined in order for this script to work.**
+
+The Example Solver has the following toggles depending on which orders you want
+to fulfill:
+
+- `enableCctpOrderPipeline()`
+- `enableLocalOrderPipeline()`
+- `enablePlaceInitialOffer()`
+- `enableImproveOffer()`
+
+See the comments in [runExampleSolver](https://www.notion.so/wormholefoundation/app/runExampleSolver.ts) for more information.
+
+This Example Solver does NOT do the following:
+
+- Discriminate between the CCTP source networks. You will have to add logic to
+determine whether you want to constrain fulfilling orders from specific
+networks. This solver will try to fulfill all orders as long as
+`enableCctpOrderPipeline()` is called.
+- Discriminate among fulfillment sizes. There is no logic determining how small
+or large fast order transfer sizes should be. This solver will try to fulfill
+anything as long as your balance can handle it.
+- Add auctions to auction history. We recommend that after settling a complete
+auction (one that you have won), you write the auction pubkey to a database
+and have a separate process to add auction history entries to reclaim rent
+from these auction accounts. **The auction history time delay is two hours
+after the VAA timestamp.** This example does not prescribe any specific
+database, so add whichever you want.
+
+## Miscellaneous
+
+To set up the Pyth Beacon (which is run using `make run-publisher`), you may
+need to increase the UDP buffer size for the OS:
